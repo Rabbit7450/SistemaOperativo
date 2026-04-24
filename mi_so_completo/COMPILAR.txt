@@ -1,0 +1,713 @@
+================================================================================
+MI SO v3.2 - NIVEL 2 (RING 3 - MODO USUARIO) - COMPILACIÓN Y EJECUCIÓN
+================================================================================
+
+VERSIÓN ACTUAL:
+===============
+Mi SO v3.2 - Incluye Modo Usuario (Ring 3) y System Calls
+
+Características Principales:
+  ✓ Bootloader: 512 bytes exacto + GDT
+  ✓ Protected Mode 32-bit
+  ✓ Ring 0 (Kernel) + Ring 3 (User)
+  ✓ Descriptor Privilege Level (DPL)
+  ✓ INT 0x80 System Calls (6 implementados)
+  ✓ Scheduler con Prioridades (0-9)
+  ✓ Estados de Procesos: RUNNING, READY, SLEEP, ZOMBIE
+  ✓ Timer Interrupt
+  ✓ Comando TOP con monitoreo
+  ✓ 11 Comandos Shell
+
+REQUISITOS OBLIGATORIOS:
+========================
+- NASM (assembler)
+- GCC 32-bit (gcc -m32)
+- GNU LD (ld -m elf_i386)
+- GNU Make
+- QEMU (para ejecutar)
+
+ADVERTENCIA WINDOWS:
+====================
+Windows NO tiene gcc/ld/nasm instalados por defecto.
+DEBE usar una de estas opciones:
+  A) WSL2 (RECOMENDADO)
+  B) Docker
+  C) MinGW
+
+================================================================================
+OPCIÓN A: COMPILAR EN WSL2 (MEJOR OPCIÓN PARA WINDOWS)
+================================================================================
+
+PASO 1: INSTALAR WSL2
+  1. Abre PowerShell como Admin
+  2. Ejecuta: wsl --install
+  3. Reinicia Windows
+  4. Elige Ubuntu 22.04 LTS desde Microsoft Store
+  5. Crea usuario y contraseña
+
+PASO 2: INSTALAR COMPILADORES EN WSL2
+  $ sudo apt update
+  $ sudo apt install -y nasm gcc g++ build-essential gcc-multilib \
+                       g++-multilib binutils qemu-system-x86
+
+PASO 3: ACCEDER AL PROYECTO
+  $ cd /mnt/c/Universidad/proyectos/SO_SOLINUX/SistemaOperativo/mi_so_completo
+
+PASO 4: COMPILAR
+  $ make clean
+  $ make
+
+  Debes ver output como:
+  - nasm -f bin boot.asm -o boot.bin
+  - gcc -ffreestanding -m32 -c kernel.c ...
+  - ld -m elf_i386 ...
+  - Archivos: boot.bin, kernel.bin, os-image.bin
+
+PASO 5: EJECUTAR EN QEMU
+  $ make run
+
+  Debes ver:
+  - "Mi SO v3.2 - Nivel 2 (Ring 3)"
+  - Menu de características
+  - Prompt ">"
+
+PASO 6: PRUEBA COMANDOS
+  > help               # Ver ayuda
+  > about              # Info SO v3.2
+  > ps                 # Listar procesos
+  > top                # Monitor
+  > exec app1          # Crear proceso Ring 3
+  > memory             # Memoria
+  > quit               # Salir (o Ctrl+C)
+
+================================================================================
+COMPILACIÓN MANUAL PASO A PASO (Si NO quieres usar make)
+================================================================================
+
+1. ENSAMBLADOR:
+   $ nasm -f bin boot.asm -o boot.bin
+   $ ls -l boot.bin    # Debe ser exactamente 512 bytes
+
+2. COMPILAR KERNEL:
+   $ gcc -ffreestanding -m32 -c kernel.c -o kernel.o
+
+3. ENLAZAR:
+   $ ld -m elf_i386 -o kernel.bin -T linker.ld --oformat binary kernel.o
+
+4. CREAR IMAGEN:
+   $ cat boot.bin kernel.bin > os-image.bin
+
+5. EJECUTAR:
+   $ qemu-system-i386 -fda os-image.bin
+
+================================================================================
+OPCIÓN B: DOCKER (Si WSL2 no funciona)
+================================================================================
+
+1. INSTALAR DOCKER DESKTOP
+   https://www.docker.com/products/docker-desktop
+
+2. CREAR DOCKERFILE:
+   Crea archivo "Dockerfile" en mi_so_completo/:
+   
+   FROM ubuntu:22.04
+   RUN apt-get update && apt-get install -y \
+       nasm gcc g++ build-essential gcc-multilib \
+       g++-multilib binutils qemu-system-x86
+   WORKDIR /work
+   CMD ["/bin/bash"]
+
+3. COMPILAR IMAGEN:
+   $ docker build -t mi_so .
+
+4. COMPILAR PROYECTO:
+   $ docker run --rm -v $(pwd):/work mi_so make clean && make
+
+5. EJECUTAR:
+   $ docker run --rm -v $(pwd):/work mi_so make run
+
+================================================================================
+OPCIÓN C: MinGW (Alternativa para Windows)
+================================================================================
+
+1. DESCARGAR MinGW-w64
+   https://www.mingw-w64.org/
+
+2. INSTALAR (con C/C++, no uses la versión antigua)
+
+3. EN TERMINAL (cmd.exe):
+   > cd C:\Universidad\proyectos\SO_SOLINUX\SistemaOperativo\mi_so_completo
+   > mingw32-make clean
+   > mingw32-make
+
+4. EJECUTAR:
+   > mingw32-make run
+
+NOTA: MinGW puede tener problemas con rutas. Si falla, usa WSL2.
+
+================================================================================
+MÁQUINAS VIRTUALES (Después de compilar os-image.bin)
+================================================================================
+
+QEMU (Recommended - Más fácil):
+  $ qemu-system-i386 -fda os-image.bin
+  $ qemu-system-i386 -fda os-image.bin -nographic -serial stdio
+
+VirtualBox:
+  1. Create VM: Linux → allocate 512MB RAM
+  2. Storage → Controller → Add os-image.bin as CD/DVD
+  3. Boot → Boot order: CD primero
+  4. Start
+
+VMware:
+  1. Create custom VM, 32-bit Linux
+  2. Add os-image.bin as CD/DVD
+  3. Boot
+
+================================================================================
+MÁQUINA REAL (USB BOOTEABLE)
+================================================================================
+
+LINUX/WSL:
+  $ lsblk                    # Ver dispositivos USB
+  $ sudo dd if=os-image.bin of=/dev/sdX bs=512 conv=notrunc
+  $ sync && eject /dev/sdX
+
+  CUIDADO: Reemplaza sdX con tu USB (sdb, sdc, etc.)
+           Usa lsblk para verificar
+
+WINDOWS (PowerShell Admin):
+  1. Instala Rufus: https://rufus.ie/
+  2. Abre Rufus
+  3. Select Device: tu USB
+  4. Boot Selection: os-image.bin
+  5. Click START
+
+Luego:
+  1. Inserta USB en máquina destino
+  2. Reinicia y presiona F2/DEL/F12 para BIOS
+  3. Boot order: USB primero
+  4. ¡Tu SO arrancará en hardware real!
+
+================================================================================
+SOLUCIÓN DE PROBLEMAS
+================================================================================
+
+ERROR: gcc: command not found
+  Solución: No estás en WSL. Instala WSL2 o usa Docker
+
+ERROR: nasm: command not found
+  $ sudo apt install nasm
+
+ERROR: ld: command not found
+  $ sudo apt install binutils
+
+ERROR: gcc -m32 fails
+  $ sudo apt install gcc-multilib g++-multilib
+
+ERROR: boot.bin no es 512 bytes
+  - Verifica boot.asm tiene: times 510-($-$$) db 0
+  - Y termina con: dw 0xaa55
+  - Run: hexdump -C boot.bin | tail (debe ver "aa 55")
+
+ERROR: QEMU: "could not load os-image.bin"
+  - Verifica os-image.bin > 0 bytes: ls -l os-image.bin
+  - Verifica boot.bin es 512 bytes exacto
+  - Verifica cat boot.bin kernel.bin > os-image.bin se ejecutó
+
+ERROR: Pantalla negra en QEMU
+  - Si VE "Bootloader v3.1: Cargando..." → Kernel loading OK
+  - Si NO VE nada → Problema en bootloader (boot.asm)
+  - Debug: qemu-system-i386 -fda os-image.bin -d int -D debug.log
+
+ERROR: Kernel panic o crash
+  - Verifica kernel_main() en kernel.c
+  - Verifica VGA memory initialization
+  - Verifica linker.ld tiene . = 0x1000
+
+================================================================================
+COMANDOS DEL SO CUANDO ESTÁ CORRIENDO
+================================================================================
+
+SISTEMA:
+  help               - Ver todos los comandos
+  about              - Información del SO (v3.2)
+  clear              - Limpiar pantalla
+  memory             - Info de memoria
+  uptime             - Tiempo del sistema
+
+PROCESOS:
+  ps                 - Listar procesos simples
+  top                - Monitor detallado (RECOMENDADO)
+  exec NAME          - Crear nuevo proceso (Ring 3)
+  kill PID           - Terminar proceso
+  sleep PID SECONDS  - Suspender proceso
+  priority PID P     - Cambiar prioridad (0=máxima, 9=mínima)
+
+UTILITIES:
+  add X Y            - Sumar dos números
+  echo TEXT          - Mostrar texto
+
+SALIR:
+  Ctrl+C             - En QEMU termina sesión
+
+================================================================================
+VERIFICACIÓN POST-COMPILACIÓN
+================================================================================
+
+Después de hacer "make", verifica:
+
+  $ ls -l *.bin
+  
+  boot.bin    512 bytes  (bootloader + GDT)
+  kernel.bin  5-30 KB    (kernel compiled)
+  os-image.bin total     (boot + kernel)
+
+Hex dump bootloader (verifica MBR signature):
+  $ hexdump -C boot.bin | tail -1
+  
+  Debe terminar con: "aa 55"
+
+Tamaño de kernel:
+  $ ls -l kernel.bin
+  
+  Debe ser > 1 KB (típicamente 5-30 KB)
+
+================================================================================
+ARQUITETURA DEL SO v3.2
+================================================================================
+
+MEMORIA:
+  0x00000000 - 0x7BFF:     IVT (Interrupt Vector Table)
+  0x7C00 - 0x7DFF:         Bootloader (512 bytes)
+  0x1000 - 0x7FFF:         Kernel (28 KB)
+  0x90000:                 Stack
+  0xB8000:                 VGA Memory (80x25)
+  0x10000+:                User Processes (4 KB c/u)
+
+GDT DESCRIPTORS:
+  0x08:  Ring 0 Code (Kernel)
+  0x10:  Ring 0 Data (Kernel)
+  0x1B:  Ring 3 Code (User) ← NUEVO v3.2
+  0x23:  Ring 3 Data (User) ← NUEVO v3.2
+
+INTERRUPTS:
+  INT 0x08:  Timer (IRQ0)
+  INT 0x80:  System Calls (NUEVO v3.2)
+
+SYSCALLS IMPLEMENTADOS:
+  1 = exit(code)
+  2 = getpid()
+  3 = getmem()
+  4 = sleep(seconds)
+  5 = setpriority(pid, prio)
+  6 = getpriority(pid)
+
+================================================================================
+ROADMAP FUTURO
+================================================================================
+
+v3.3 (Nivel 2):
+  - Paginación virtual memory
+  - Page tables
+  - Page faults
+
+v3.4 (Nivel 2):
+  - Sincronización (mutex, semáforos)
+  - IPC (Inter-Process Communication)
+
+v3.5+ (Nivel 3):
+  - FAT12 Filesystem
+  - IDE/ATA driver
+  - Red (NE2000 emulation)
+  - Shell mejorado
+
+================================================================================
+REFERENCIAS Y RECURSOS
+================================================================================
+
+OSDev Wiki:         https://wiki.osdev.org/
+QEMU Manual:        https://qemu.weilnetz.de/
+x86 Protected Mode: https://wiki.osdev.org/Protected_Mode
+GDT Tutorial:       https://wiki.osdev.org/GDT
+Interrupt Handling: https://wiki.osdev.org/Interrupt_Handler
+System Calls:       https://wiki.osdev.org/System_Calls
+
+Libros Recomendados:
+  - "Operating Systems: Design and Implementation" (Tanenbaum)
+  - "Computer Architecture" (Patterson & Hennessy)
+  - "The Art of Computer Programming" (Knuth)
+
+================================================================================
+================================================================================
+MI SO v3.2 - RING 3 (NIVEL 2) - COMPILACIÓN Y EJECUCIÓN
+================================================================================
+
+ESTADO ACTUAL:
+==============
+- Bootloader v3.1 mejorado (512 bytes exacto)
+- Kernel v3.2 CON MODO USUARIO (Ring 3)
+- Sistema de Interrupciones
+- GDT con descriptores Ring 0 y Ring 3
+- INT 0x80 System Calls (6 syscalls implementadas)
+- Scheduler con prioridades
+- Procesos con memoria independiente
+
+REQUISITOS:
+===========
+- NASM (Netwide Assembler)
+- GCC 32-bit (gcc -m32 con soporte -ffreestanding)
+- GNU LD 32-bit (ld -m elf_i386)
+- make (opcional, pero MakeFile incluido)
+- QEMU (para ejecutar en virtual machine)
+
+IMPORTANTE: Windows NO tiene gcc/nasm nativos. Necesitas usar WSL2, Docker o MinGW.
+
+================================================================================
+OPCIÓN 1: LINUX / WSL2 (RECOMENDADO - La mejor opción)
+================================================================================
+
+1. INSTALAR HERRAMIENTAS EN WSL2:
+   $ sudo apt update
+   $ sudo apt install -y nasm gcc-multilib g++-multilib make qemu-system-x86
+
+2. CLONAR/TRANSFERIR PROYECTO A WSL:
+   $ cp -r /mnt/c/Universidad/proyectos/SO_SOLINUX/SistemaOperativo/mi_so_completo ~/
+
+3. COMPILAR:
+   $ cd mi_so_completo
+   $ make clean
+   $ make
+
+   Resultado esperado:
+   - boot.bin (512 bytes)
+   - kernel.bin (5-30 KB)
+   - os-image.bin (booteable)
+===========
+- NASM (Netwide Assembler) - ensambla boot.asm
+- GCC 32-bit (gcc -m32) - compila kernel.c
+- GNU LD (ld linker) - enlaza kernel
+- make (opcional)
+- QEMU (para virtualización) - recomendado
+
+================================================================================
+OPCIÓN 1: LINUX / WSL (RECOMENDADO)
+================================================================================
+
+1. INSTALAR HERRAMIENTAS:
+   $ sudo apt update
+   $ sudo apt install -y nasm gcc g++ make gcc-multilib g++-multilib qemu-system-x86
+
+2. COMPILAR:
+   $ cd mi_so_completo
+   $ make clean
+   $ make
+
+3. EJECUTAR EN QEMU:
+   $ make run
+
+4. DEBUGGEAR CON GDB:
+   Terminal 1: $ make debug
+   Terminal 2: $ gdb
+              > target remote localhost:1234
+
+================================================================================
+OPCIÓN 2: COMPILACIÓN MANUAL PASO A PASO
+================================================================================
+
+1. BOOTLOADER (512 bytes exactos):
+   $ nasm -f bin boot.asm -o boot.bin
+   $ ls -l boot.bin  # Debe ser 512 bytes
+
+2. KERNEL (compilar a 32-bit):
+   $ gcc -ffreestanding -m32 -c kernel.c -o kernel.o
+
+3. ENLAZAR KERNEL (con script de linker):
+   $ ld -m elf_i386 -o kernel.bin -T linker.ld --oformat binary kernel.o
+
+4. CREAR IMAGEN BOOTEABLE:
+   $ cat boot.bin kernel.bin > os-image.bin
+
+5. EJECUTAR EN QEMU:
+   $ qemu-system-i386 -fda os-image.bin -monitor stdio
+
+================================================================================
+OPCIÓN 3: WINDOWS (WSL2 RECOMENDADO)
+================================================================================
+
+MEJOR: WSL2 (Windows Subsystem for Linux 2)
+- Instala WSL2 desde Microsoft Store
+- Instala Ubuntu 20.04/22.04 LTS
+- Abre Ubuntu terminal y sigue OPCIÓN 1
+
+ALTERNATIVA: MinGW
+- Descarga: https://www.mingw-w64.org/
+- Instala con gcc 32-bit, ld, y nasm
+- En cmd: mingw32-make run
+
+================================================================================
+MÁQUINAS VIRTUALES
+================================================================================
+
+QEMU (MEJOR PARA DESARROLLO):
+   $ qemu-system-i386 -fda os-image.bin
+   $ qemu-system-i386 -fda os-image.bin -nographic -serial stdio
+
+VirtualBox:
+   1. Create VM → Linux → allocate 512MB RAM
+   2. Storage → IDE Controller → Add os-image.bin as Optical
+   3. Boot → Cambiar boot order (CD primero)
+   4. Start VM
+
+VMware/Hyper-V:
+   Crear VM custom, agregar os-image.bin como CD/DVD booteable
+
+================================================================================
+MÁQUINA REAL (CUIDADO!!!)
+================================================================================
+
+USB BOOTEABLE (Seguro con backup):
+   $ lsblk                          # Identificar USB
+   $ sudo dd if=os-image.bin of=/dev/sdX bs=512 conv=notrunc
+   (Reemplaza sdX con tu USB: sdb, sdc, etc.)
+   $ sync && eject /dev/sdX
+
+DISQUETE 3.5" VINTAGE:
+   $ sudo dd if=os-image.bin of=/dev/fd0
+
+Luego:
+   1. Inserta USB/disquete
+   2. Reinicia máquina
+   3. Presiona F2/DEL/F12 para BIOS
+   4. Cambia boot order: USB/Floppy primero
+   5. ¡Tu SO arrancará!
+
+================================================================================
+COMANDOS DEL SO CUANDO ESTÉ CORRIENDO
+================================================================================
+
+Ayuda:
+   help              - Ver todos los comandos
+   about             - Info del sistema
+
+Procesos:
+   ps                - Lista procesos
+   top               - Monitor detallado (PID, estado, CPU, memoria)
+   exec NAME         - Crear proceso (ej: exec app1)
+   kill PID          - Terminar proceso
+   sleep PID SECONDS - Suspender proceso
+   priority PID P    - Cambiar prioridad (0=alta, 9=baja)
+
+Sistema:
+   memory            - Uso de memoria
+   uptime            - Tiempo del sistema
+   clear             - Limpiar pantalla
+
+Utilidades:
+   add X Y           - Sumar dos números
+   echo TEXT         - Mostrar texto
+
+SALIR: CTRL+ALT+G (en QEMU, libera ratón) + CTRL+C
+
+================================================================================
+VERIFICACIÓN
+================================================================================
+
+Después de compilar, verifica:
+
+   $ ls -la *.bin
+   
+   boot.bin    512 bytes (bootloader + GDT)
+   kernel.bin  5-30 KB (kernel en 32-bit)
+   os-image.bin boot.bin + kernel.bin (total)
+
+Hex dump para verificar bootloader:
+   $ hexdump -C boot.bin | head
+   $ hexdump -C boot.bin | tail
+
+Debe terminar con: "aa 55" (firma MBR)
+
+================================================================================
+SOLUCIÓN DE PROBLEMAS
+================================================================================
+
+ERROR: gcc -m32 not found
+   $ sudo apt install gcc-multilib lib32gcc-11-dev
+
+ERROR: nasm not found
+   $ sudo apt install nasm
+
+ERROR: boot.bin no es 512 bytes
+   - Revisar boot.asm debe terminar con: times 510-($-$$) db 0
+   - Y terminar con: dw 0xaa55
+   - Verificar: hexdump -C boot.bin | wc -l
+
+ERROR: Kernel no carga en QEMU
+   - Revisar boot.bin tiene 512 bytes exactos
+   - Revisar kernel.bin se genera sin errores
+   - Revisar linker.ld tiene dirección correcta (0x1000)
+
+ERROR: Pantalla negra en QEMU
+   - Si NO ve "Cargando kernel..." → problema en bootloader
+   - Si ve mensaje pero nada más → problema en kernel_main
+   - Debug: qemu-system-i386 -fda os-image.bin -d int -D debug.log
+
+ERROR: Error en compilación de kernel.c
+   - Verificar que gcc tiene -ffreestanding
+   - Verificar linker.ld existe
+   - Limpiar: make clean && make
+
+================================================================================
+DESARROLLO FUTURO (ROADMAP)
+================================================================================
+
+v3.2 (Nivel 2):
+  - Paginación virtual memory
+  - Tabla de páginas
+  - Page faults
+
+v3.3 (Nivel 2):
+  - Modo usuario real (Ring 3)
+  - System calls
+  - User/Kernel transitions
+
+v3.4+ (Futuro):
+  - Sistema de archivos FAT12
+  - IDE/ATA drivers
+  - Red (NE2000)
+  - Sincronización (mutex, semáforos)
+
+================================================================================
+REFERENCIAS
+================================================================================
+
+OSDev Wiki:         https://wiki.osdev.org/
+QEMU Manual:        https://qemu.weilnetz.de/
+x86 Assembly:       https://www.nasm.us/
+Bootloading:        https://wiki.osdev.org/Bootloader
+Protected Mode:     https://wiki.osdev.org/Protected_Mode
+
+================================================================================
+INSTRUCCIONES DE COMPILACIÓN - MI SO v3.0
+==========================================
+
+Requisitos:
+- NASM (Netwide Assembler) para boot.asm
+- GCC 32-bit (gcc -m32) para kernel.c
+- GNU LD (ld) para enlazar
+- QEMU (opcional, para ejecutar)
+
+OPCIÓN 1: Usando Linux/WSL/MinGW (RECOMENDADO)
+================================================
+
+1. Limpiar:
+   rm -f *.bin *.o os-image.bin
+
+2. Compilar bootloader:
+   nasm -f bin boot.asm -o boot.bin
+
+3. Compilar kernel:
+   gcc -ffreestanding -m32 -c kernel.c -o kernel.o
+   ld -m elf_i386 -o kernel.bin -T linker.ld --oformat binary kernel.o
+
+4. Crear imagen:
+   cat boot.bin kernel.bin > os-image.bin
+
+5. Ejecutar (si tienes QEMU):
+   qemu-system-i386 -fda os-image.bin
+
+O con Makefile:
+   make
+   make run
+
+OPCIÓN 2: Si tienes NASM pero no GCC 32-bit
+=============================================
+
+1. Instalar MinGW con soporte 32-bit o
+   usar Docker: docker run -it gcc:latest
+
+2. Dentro del contenedor:
+   apt-get update && apt-get install -y nasm
+   gcc -ffreestanding -m32 -c kernel.c -o kernel.o
+   ld -m elf_i386 -o kernel.bin -T linker.ld --oformat binary kernel.o
+
+SOLUCIÓN DE PROBLEMAS
+======================
+
+Error: "gcc: command not found"
+→ Instalar MinGW o usar WSL
+→ En WSL: sudo apt install gcc g++ make nasm
+
+Error: "-m32 not recognized"
+→ Instalar libgcc-*-multilib
+→ En Ubuntu: sudo apt install gcc-multilib g++-multilib
+
+Error: "ld: cannot find -lc"
+→ Normal en modo -ffreestanding
+→ No agregues -lc ni -nostartfiles innecesariamente
+
+Error: "kernel doesn't load in QEMU"
+→ Verifica que kernel está en 0x1000
+→ Verifica que boot.bin es exactamente 512 bytes
+
+DESARROLLO EN WINDOWS
+======================
+
+Opción 1: Usa WSL (Windows Subsystem for Linux)
+- Instala Ubuntu en WSL
+- Sigue la sección Linux
+
+Opción 2: USA Docker
+- Instala Docker Desktop
+- docker run -it -v $(pwd):/work gcc:latest
+- Compila dentro del contenedor
+
+Opción 3: USA MinGW
+- Descarga MinGW desde: https://www.mingw-w64.org/
+- Instala gcc 32-bit, make, nasm
+- Usa mingw32-make en lugar de make
+
+Opción 4: OS-Dev Docker
+- docker pull bearoday/os-dev:latest
+- docker run -it -v $(pwd):/work bearoday/os-dev:latest
+- Ya tiene todo instalado
+
+VERIFICAR INSTALACIÓN
+======================
+
+nasm -version
+gcc -m32 --version
+ld --version
+make --version
+
+Si ves versiones, estás listo para compilar.
+
+ESTRUCTURA FINAL
+================
+
+Boot.asm (512 bytes) → Bootloader + GDT
+         ↓
+Kernel.c  → Compilado a kernel.o
+         ↓
+Linker.ld → Mapeo de memoria
+         ↓
+kernel.bin
+         ↓
+os-image.bin (boot.bin + kernel.bin)
+         ↓
+QEMU
+
+TIPS
+====
+
+1. Si necesitas debuggear:
+   qemu-system-i386 -fda os-image.bin -S -gdb tcp::1234
+   gdb target remote localhost:1234
+
+2. Para ver el binario:
+   hexdump -C boot.bin | head
+   objdump -d kernel.o
+
+3. Tamaño de archivos:
+   - boot.bin: debe ser exactamente 512 bytes
+   - kernel.bin: típicamente 5-20 KB
