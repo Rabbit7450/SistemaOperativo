@@ -1,13 +1,27 @@
+CC=gcc
+CFLAGS=-ffreestanding -m32 -Wall -Wextra -Iinclude
+LD=ld
+LDFLAGS=-m elf_i386
+
+SRC_DIR=src
+BUILD_DIR=build
+
+OBJS=$(BUILD_DIR)/kernel.o $(BUILD_DIR)/vga.o $(BUILD_DIR)/utils.o $(BUILD_DIR)/process.o $(BUILD_DIR)/servers.o $(BUILD_DIR)/interrupts.o $(BUILD_DIR)/shell.o
+
 all: os-image.bin
 
 boot.bin: boot.asm
 	nasm -f bin boot.asm -o boot.bin
 
-kernel.o: kernel.c
-	gcc -ffreestanding -m32 -c kernel.c -o kernel.o
 
-kernel.bin: kernel.o
-	ld -m elf_i386 -o kernel.bin -T linker.ld --oformat binary kernel.o
+$(BUILD_DIR):
+	mkdir -p $(BUILD_DIR)
+
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+kernel.bin: $(OBJS)
+	$(LD) $(LDFLAGS) -o kernel.bin -T linker.ld --oformat binary $(OBJS)
 
 os-image.bin: boot.bin kernel.bin
 	cat boot.bin kernel.bin > os-image.bin
@@ -19,4 +33,4 @@ debug: os-image.bin
 	qemu-system-i386 -fda os-image.bin -S -gdb tcp::1234
 
 clean:
-	rm -f *.bin *.o os-image.bin
+	rm -rf *.bin os-image.bin $(BUILD_DIR)
