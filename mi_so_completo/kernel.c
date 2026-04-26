@@ -7,6 +7,11 @@
 #define VGA_MEMORY 0xb8000
 #define MAX_CMD 80
 #define MAX_PROCESSES 10
+#define MAX_SERVERS 8
+#define MAX_SERVER_DIRS 6
+#define MAX_SERVER_FILES 12
+#define MAX_FILE_CONTENT 64
+#define MAX_AUDIT_LOGS 32
 #define KERNEL_MODE 0
 #define USER_MODE 1
 
@@ -125,6 +130,299 @@ Process process_table[MAX_PROCESSES];
 int current_pid = 0;
 int next_pid = 1;
 int timer_ticks = 0;
+
+typedef struct {
+    char name[16];
+    int active;
+    int cpu_load;
+    int memory_mb;
+    int health;
+    int restarts;
+} ServerService;
+
+typedef struct {
+    int used;
+    char name[16];
+} ServerDirectory;
+
+typedef struct {
+    int used;
+    char dir[16];
+    char name[16];
+    char content[MAX_FILE_CONTENT];
+    int perm_read;
+    int perm_write;
+} ServerFile;
+
+typedef struct {
+    ServerDirectory dirs[MAX_SERVER_DIRS];
+    ServerFile files[MAX_SERVER_FILES];
+    int valid;
+} ServerSnapshot;
+
+ServerService server_table[MAX_SERVERS];
+ServerDirectory server_dirs[MAX_SERVERS][MAX_SERVER_DIRS];
+ServerFile server_files[MAX_SERVERS][MAX_SERVER_FILES];
+ServerSnapshot server_snapshots[MAX_SERVERS];
+int server_count = 0;
+char audit_logs[MAX_AUDIT_LOGS][64];
+int audit_count = 0;
+
+#define ROLE_VIEWER 0
+#define ROLE_OPERATOR 1
+#define ROLE_ADMIN 2
+int current_role = ROLE_VIEWER;
+int session_authenticated = 0;
+
+void copy_string(char *dst, const char *src, int max_len) {
+    int i = 0;
+    while (src[i] && i < max_len - 1) {
+        dst[i] = src[i];
+        i++;
+    }
+    dst[i] = '\0';
+}
+
+int starts_with(const char *str, const char *prefix) {
+    int i = 0;
+    while (prefix[i]) {
+        if (str[i] != prefix[i]) return 0;
+        i++;
+    }
+    return 1;
+}
+
+const char* skip_spaces(const char *str) {
+    while (*str == ' ') str++;
+    return str;
+}
+
+int read_token(const char **cursor, char *out, int max_len) {
+    const char *p = skip_spaces(*cursor);
+    int i = 0;
+    if (*p == '\0') return 0;
+    while (*p && *p != ' ' && i < max_len - 1) out[i++] = *p++;
+    out[i] = '\0';
+    *cursor = p;
+    return 1;
+}
+
+void add_audit_log(const char *text) {
+    int idx;
+    if (audit_count < MAX_AUDIT_LOGS) idx = audit_count++;
+    else {
+        int i;
+        for (i = 1; i < MAX_AUDIT_LOGS; i++) copy_string(audit_logs[i - 1], audit_logs[i], 64);
+        idx = MAX_AUDIT_LOGS - 1;
+    }
+    copy_string(audit_logs[idx], text, 64);
+}
+
+const char* role_name(int role) {
+    if (role == ROLE_ADMIN) return "admin";
+    if (role == ROLE_OPERATOR) return "operator";
+    return "viewer";
+}
+
+int require_role(int min_role) {
+    if (!session_authenticated) {
+        print_string("Error: sesion no autenticada. Usa login <rol> <clave>\n", 0x0C);
+        return 0;
+    }
+    if (current_role < min_role) {
+        print_string("Error: permisos insuficientes para esta operacion\n", 0x0C);
+        return 0;
+    }
+    return 1;
+}
+
+int find_server(const char *name) {
+    int i;
+    for (i = 0; i < server_count; i++) if (__builtin_strcmp(server_table[i].name, name) == 0) return i;
+    return -1;
+}
+
+void add_server(const char *name, int active, int cpu, int mem, int health) {
+    if (server_count >= MAX_SERVERS) return;
+    copy_string(server_table[server_count].name, name, 16);
+    server_table[server_count].active = active;
+    server_table[server_count].cpu_load = cpu;
+    server_table[server_count].memory_mb = mem;
+    server_table[server_count].health = health;
+    server_table[server_count].restarts = 0;
+    server_count++;
+}
+
+void init_server_manager() {
+    server_count = 0;
+    add_server("nginx", 1, 12, 64, 95);
+    add_server("postgres", 1, 20, 512, 97);
+    add_server("redis", 1, 6, 128, 96);
+    add_server("sshd", 1, 2, 32, 99);
+    add_server("api-gateway", 0, 0, 96, 88);
+    add_server("worker-1", 1, 18, 256, 93);
+    add_server("worker-2", 1, 21, 256, 91);
+    add_server("worker-3", 0, 0, 256, 90);
+}
+
+void init_server_filesystem() {
+    int s, d, f;
+    for (s = 0; s < MAX_SERVERS; s++) {
+        for (d = 0; d < MAX_SERVER_DIRS; d++) {
+            server_dirs[s][d].used = 0;
+            server_dirs[s][d].name[0] = '\0';
+        }
+        for (f = 0; f < MAX_SERVER_FILES; f++) {
+            server_files[s][f].used = 0;
+            server_files[s][f].dir[0] = '\0';
+            server_files[s][f].name[0] = '\0';
+            server_files[s][f].content[0] = '\0';
+            server_files[s][f].perm_read = 1;
+            server_files[s][f].perm_write = 1;
+        }
+        server_snapshots[s].valid = 0;
+    }
+    audit_count = 0;
+    for (s = 0; s < server_count; s++) {
+        server_dirs[s][0].used = 1; copy_string(server_dirs[s][0].name, "etc", 16);
+        server_dirs[s][1].used = 1; copy_string(server_dirs[s][1].name, "logs", 16);
+    }
+}
+
+int fs_dir_exists(int sidx, const char *dir) {
+    int i;
+    for (i = 0; i < MAX_SERVER_DIRS; i++) if (server_dirs[sidx][i].used && __builtin_strcmp(server_dirs[sidx][i].name, dir) == 0) return 1;
+    return 0;
+}
+
+int fs_find_file(int sidx, const char *dir, const char *file) {
+    int i;
+    for (i = 0; i < MAX_SERVER_FILES; i++) {
+        if (server_files[sidx][i].used && __builtin_strcmp(server_files[sidx][i].dir, dir) == 0 && __builtin_strcmp(server_files[sidx][i].name, file) == 0) return i;
+    }
+    return -1;
+}
+
+void command_server_list() {
+    int i; char buf[16];
+    print_string("SERVIDOR      ESTADO CPU MEM  SALUD\n", 0x0B);
+    for (i = 0; i < server_count; i++) {
+        print_string(" - ", 0x0F); print_string(server_table[i].name, 0x0F); print_string(" ", 0x0F);
+        print_string(server_table[i].active ? "UP " : "DOWN ", server_table[i].active ? 0x0A : 0x0C);
+        int_to_str(server_table[i].cpu_load, buf); print_string(buf, 0x0F); print_string("% ", 0x0F);
+        int_to_str(server_table[i].memory_mb, buf); print_string(buf, 0x0F); print_string("MB ", 0x0F);
+        int_to_str(server_table[i].health, buf); print_string(buf, 0x0F); print_string("%\n", 0x0F);
+    }
+}
+
+void command_server_status(const char *name) {
+    int sidx = find_server(name); char buf[16];
+    if (sidx < 0) { print_string("Error: servidor no existe\n", 0x0C); return; }
+    print_string("Servidor: ", 0x0E); print_string(server_table[sidx].name, 0x0E); print_string("\n", 0x0E);
+    print_string("Estado: ", 0x0E); print_string(server_table[sidx].active ? "UP\n" : "DOWN\n", server_table[sidx].active ? 0x0A : 0x0C);
+    print_string("CPU: ", 0x0E); int_to_str(server_table[sidx].cpu_load, buf); print_string(buf, 0x0E); print_string("%\n", 0x0E);
+}
+
+void command_server_start(const char *name) { int i; if (!require_role(ROLE_OPERATOR)) return; i = find_server(name); if (i < 0) { print_string("Error: servidor no existe\n", 0x0C); return; } server_table[i].active = 1; add_audit_log("server start"); print_string("Servidor iniciado\n", 0x0A); }
+void command_server_stop(const char *name) { int i; if (!require_role(ROLE_OPERATOR)) return; i = find_server(name); if (i < 0) { print_string("Error: servidor no existe\n", 0x0C); return; } server_table[i].active = 0; add_audit_log("server stop"); print_string("Servidor detenido\n", 0x0A); }
+void command_server_restart(const char *name) { int i; if (!require_role(ROLE_OPERATOR)) return; i = find_server(name); if (i < 0) { print_string("Error: servidor no existe\n", 0x0C); return; } server_table[i].active = 1; server_table[i].restarts++; add_audit_log("server restart"); print_string("Servidor reiniciado\n", 0x0A); }
+
+void command_server_backup(const char *name) {
+    int i, sidx; if (!require_role(ROLE_OPERATOR)) return;
+    sidx = find_server(name); if (sidx < 0) { print_string("Error: servidor no existe\n", 0x0C); return; }
+    for (i = 0; i < MAX_SERVER_DIRS; i++) server_snapshots[sidx].dirs[i] = server_dirs[sidx][i];
+    for (i = 0; i < MAX_SERVER_FILES; i++) server_snapshots[sidx].files[i] = server_files[sidx][i];
+    server_snapshots[sidx].valid = 1; add_audit_log("backup"); print_string("Backup completado\n", 0x0A);
+}
+
+void command_server_restore(const char *name) {
+    int i, sidx; if (!require_role(ROLE_ADMIN)) return;
+    sidx = find_server(name); if (sidx < 0) { print_string("Error: servidor no existe\n", 0x0C); return; }
+    if (!server_snapshots[sidx].valid) { print_string("Error: no existe backup\n", 0x0C); return; }
+    for (i = 0; i < MAX_SERVER_DIRS; i++) server_dirs[sidx][i] = server_snapshots[sidx].dirs[i];
+    for (i = 0; i < MAX_SERVER_FILES; i++) server_files[sidx][i] = server_snapshots[sidx].files[i];
+    add_audit_log("restore"); print_string("Restore completado\n", 0x0A);
+}
+
+void command_server_audit() { int i; print_string("AUDITORIA:\n", 0x0B); for (i = 0; i < audit_count; i++) { print_string(" - ", 0x0F); print_string(audit_logs[i], 0x0F); print_string("\n", 0x0F); } }
+
+void command_login(const char *role, const char *pass) {
+    if (__builtin_strcmp(role, "admin") == 0 && __builtin_strcmp(pass, "admin123") == 0) { current_role = ROLE_ADMIN; session_authenticated = 1; add_audit_log("login admin"); print_string("Login admin OK\n", 0x0A); return; }
+    if (__builtin_strcmp(role, "operator") == 0 && __builtin_strcmp(pass, "operator123") == 0) { current_role = ROLE_OPERATOR; session_authenticated = 1; add_audit_log("login operator"); print_string("Login operator OK\n", 0x0A); return; }
+    if (__builtin_strcmp(role, "viewer") == 0 && __builtin_strcmp(pass, "viewer123") == 0) { current_role = ROLE_VIEWER; session_authenticated = 1; add_audit_log("login viewer"); print_string("Login viewer OK\n", 0x0A); return; }
+    print_string("Error: credenciales invalidas\n", 0x0C);
+}
+
+void command_logout() { session_authenticated = 0; current_role = ROLE_VIEWER; add_audit_log("logout"); print_string("Sesion cerrada\n", 0x0A); }
+
+void command_server_fs_dirs(const char *srv) {
+    int sidx = find_server(srv), i; if (sidx < 0) { print_string("Error: servidor no existe\n", 0x0C); return; }
+    print_string("Directorios:\n", 0x0E); for (i = 0; i < MAX_SERVER_DIRS; i++) if (server_dirs[sidx][i].used) { print_string(" - ", 0x0F); print_string(server_dirs[sidx][i].name, 0x0F); print_string("\n", 0x0F); }
+}
+
+void command_server_fs_mkdir(const char *srv, const char *dir) {
+    int sidx = find_server(srv), i; if (!require_role(ROLE_OPERATOR)) return;
+    if (sidx < 0 || !server_table[sidx].active) { print_string("Error: servidor invalido o detenido\n", 0x0C); return; }
+    if (fs_dir_exists(sidx, dir)) { print_string("Directorio ya existe\n", 0x0E); return; }
+    for (i = 0; i < MAX_SERVER_DIRS; i++) if (!server_dirs[sidx][i].used) { server_dirs[sidx][i].used = 1; copy_string(server_dirs[sidx][i].name, dir, 16); add_audit_log("mkdir"); print_string("Directorio creado\n", 0x0A); return; }
+}
+
+void command_server_fs_touch(const char *srv, const char *dir, const char *file) {
+    int sidx = find_server(srv), i; if (!require_role(ROLE_OPERATOR)) return;
+    if (sidx < 0 || !server_table[sidx].active || !fs_dir_exists(sidx, dir)) { print_string("Error: servidor/directorio invalido\n", 0x0C); return; }
+    if (fs_find_file(sidx, dir, file) >= 0) { print_string("Archivo ya existe\n", 0x0E); return; }
+    for (i = 0; i < MAX_SERVER_FILES; i++) if (!server_files[sidx][i].used) { server_files[sidx][i].used = 1; copy_string(server_files[sidx][i].dir, dir, 16); copy_string(server_files[sidx][i].name, file, 16); server_files[sidx][i].perm_read = 1; server_files[sidx][i].perm_write = 1; add_audit_log("touch"); print_string("Archivo creado\n", 0x0A); return; }
+}
+
+void command_server_fs_ls(const char *srv, const char *dir) {
+    int sidx = find_server(srv), i; if (sidx < 0 || !fs_dir_exists(sidx, dir)) { print_string("Error: servidor/directorio invalido\n", 0x0C); return; }
+    for (i = 0; i < MAX_SERVER_FILES; i++) if (server_files[sidx][i].used && __builtin_strcmp(server_files[sidx][i].dir, dir) == 0) { print_string(" - ", 0x0F); print_string(server_files[sidx][i].name, 0x0F); print_string("\n", 0x0F); }
+}
+
+void command_server_fs_write(const char *srv, const char *dir, const char *file, const char *content) {
+    int sidx = find_server(srv), fidx; if (!require_role(ROLE_OPERATOR)) return;
+    if (sidx < 0 || !server_table[sidx].active) { print_string("Error: servidor invalido o detenido\n", 0x0C); return; }
+    fidx = fs_find_file(sidx, dir, file); if (fidx < 0 || !server_files[sidx][fidx].perm_write) { print_string("Error: archivo invalido o sin permiso write\n", 0x0C); return; }
+    copy_string(server_files[sidx][fidx].content, content, MAX_FILE_CONTENT); add_audit_log("write"); print_string("Contenido actualizado\n", 0x0A);
+}
+
+void command_server_fs_cat(const char *srv, const char *dir, const char *file) {
+    int sidx = find_server(srv), fidx; if (sidx < 0) { print_string("Error: servidor no existe\n", 0x0C); return; }
+    fidx = fs_find_file(sidx, dir, file); if (fidx < 0 || !server_files[sidx][fidx].perm_read) { print_string("Error: archivo invalido o sin permiso read\n", 0x0C); return; }
+    print_string("Contenido: ", 0x0E); print_string(server_files[sidx][fidx].content[0] ? server_files[sidx][fidx].content : "(vacio)", 0x0F); print_string("\n", 0x0F);
+}
+
+void command_server_fs_rm(const char *srv, const char *dir, const char *file) {
+    int sidx = find_server(srv), fidx; if (!require_role(ROLE_ADMIN)) return;
+    if (sidx < 0) { print_string("Error: servidor no existe\n", 0x0C); return; }
+    fidx = fs_find_file(sidx, dir, file); if (fidx < 0) { print_string("Error: archivo no existe\n", 0x0C); return; }
+    server_files[sidx][fidx].used = 0; add_audit_log("rm"); print_string("Archivo eliminado\n", 0x0A);
+}
+
+void command_server_fs_rmdir(const char *srv, const char *dir) {
+    int sidx = find_server(srv), i; if (!require_role(ROLE_ADMIN)) return;
+    if (sidx < 0) { print_string("Error: servidor no existe\n", 0x0C); return; }
+    for (i = 0; i < MAX_SERVER_FILES; i++) if (server_files[sidx][i].used && __builtin_strcmp(server_files[sidx][i].dir, dir) == 0) { print_string("Error: directorio no vacio\n", 0x0C); return; }
+    for (i = 0; i < MAX_SERVER_DIRS; i++) if (server_dirs[sidx][i].used && __builtin_strcmp(server_dirs[sidx][i].name, dir) == 0) { server_dirs[sidx][i].used = 0; add_audit_log("rmdir"); print_string("Directorio eliminado\n", 0x0A); return; }
+}
+
+void command_server_fs_chmod(const char *srv, const char *dir, const char *file, const char *mode) {
+    int sidx = find_server(srv), fidx; if (!require_role(ROLE_ADMIN)) return;
+    if (sidx < 0) { print_string("Error: servidor no existe\n", 0x0C); return; }
+    fidx = fs_find_file(sidx, dir, file); if (fidx < 0) { print_string("Error: archivo no existe\n", 0x0C); return; }
+    if (__builtin_strcmp(mode, "r") == 0) { server_files[sidx][fidx].perm_read = 1; server_files[sidx][fidx].perm_write = 0; }
+    else if (__builtin_strcmp(mode, "w") == 0) { server_files[sidx][fidx].perm_read = 0; server_files[sidx][fidx].perm_write = 1; }
+    else if (__builtin_strcmp(mode, "rw") == 0) { server_files[sidx][fidx].perm_read = 1; server_files[sidx][fidx].perm_write = 1; }
+    else { print_string("Modo invalido\n", 0x0C); return; }
+    add_audit_log("chmod"); print_string("Permisos actualizados\n", 0x0A);
+}
+
+void command_principales() {
+    print_string("Sistema: help cmd clear about uptime memory whoami login logout\n", 0x0F);
+    print_string("Procesos: ps top exec kill sleep priority\n", 0x0F);
+    print_string("Servidores: list status start stop restart backup restore audit\n", 0x0F);
+    print_string("FS: dirs mkdir touch ls write cat rm rmdir chmod\n", 0x0F);
+}
 
 void init_process_table() {
     for (int i = 0; i < MAX_PROCESSES; i++) {
@@ -302,6 +600,15 @@ void int_to_str(int num, char *buffer) {
 // ==================== INTERRUPT HANDLERS ====================
 void timer_handler() {
     timer_ticks++;
+    if (timer_ticks % 100 == 0) {
+        int i;
+        for (i = 0; i < server_count; i++) {
+            if (server_table[i].active) {
+                server_table[i].cpu_load = (server_table[i].cpu_load + i + 3) % 60;
+                if (server_table[i].cpu_load < 3) server_table[i].cpu_load = 3;
+            }
+        }
+    }
     
     // Actualizar procesos en sleep
     for (int i = 0; i < MAX_PROCESSES; i++) {
@@ -456,7 +763,79 @@ void execute_command() {
         print_string("  memory         - Info de memoria\n", 0x0A);
         print_string("  uptime         - Tiempo de sistema\n", 0x0A);
         print_string("  add X Y        - Suma dos numeros\n", 0x0A);
+        print_string("  cmd            - Ayuda extendida\n", 0x0A);
+        print_string("  login R C      - Login por rol\n", 0x0A);
+        print_string("  logout         - Cerrar sesion\n", 0x0A);
+        print_string("  whoami         - Rol y sesion\n", 0x0A);
         print_string("  about          - Info del SO\n", 0x0A);
+    }
+    else if (__builtin_strcmp(command, "cmd") == 0) {
+        print_string("CMD Integrado - Gestion Linux\n", 0x0B);
+        print_string("Rol: ", 0x0B);
+        print_string(role_name(current_role), 0x0B);
+        print_string(" | Sesion: ", 0x0B);
+        print_string(session_authenticated ? "activa\n" : "cerrada\n", 0x0B);
+        print_string("server list|status|start|stop|restart|backup|restore|audit\n", 0x0B);
+        print_string("server fs dirs|mkdir|touch|ls|write|cat|rm|rmdir|chmod\n", 0x0B);
+        print_string("login <admin|operator|viewer> <clave>, logout, whoami\n", 0x0B);
+    }
+    else if (__builtin_strcmp(command, "whoami") == 0) {
+        print_string("Rol: ", 0x0E);
+        print_string(role_name(current_role), 0x0E);
+        print_string(" | Sesion: ", 0x0E);
+        print_string(session_authenticated ? "activa\n" : "cerrada\n", 0x0E);
+    }
+    else if (starts_with(command, "login ")) {
+        const char *cursor = command + 6;
+        char role[16];
+        char pass[24];
+        if (!read_token(&cursor, role, 16) || !read_token(&cursor, pass, 24)) print_string("Uso: login <admin|operator|viewer> <clave>\n", 0x0C);
+        else command_login(role, pass);
+    }
+    else if (__builtin_strcmp(command, "logout") == 0) {
+        command_logout();
+    }
+    else if (__builtin_strcmp(command, "principales") == 0) {
+        command_principales();
+    }
+    else if (__builtin_strcmp(command, "server list") == 0) {
+        command_server_list();
+    }
+    else if (starts_with(command, "server status ")) {
+        command_server_status(skip_spaces(command + 14));
+    }
+    else if (starts_with(command, "server start ")) {
+        command_server_start(skip_spaces(command + 13));
+    }
+    else if (starts_with(command, "server stop ")) {
+        command_server_stop(skip_spaces(command + 12));
+    }
+    else if (starts_with(command, "server restart ")) {
+        command_server_restart(skip_spaces(command + 15));
+    }
+    else if (starts_with(command, "server backup ")) {
+        command_server_backup(skip_spaces(command + 14));
+    }
+    else if (starts_with(command, "server restore ")) {
+        command_server_restore(skip_spaces(command + 15));
+    }
+    else if (__builtin_strcmp(command, "server audit") == 0) {
+        command_server_audit();
+    }
+    else if (starts_with(command, "server fs ")) {
+        const char *cursor = command + 10;
+        char op[16], srv[16], dir[16], file[16], mode[8];
+        if (!read_token(&cursor, op, 16)) print_string("Uso: server fs <op>\n", 0x0C);
+        else if (__builtin_strcmp(op, "dirs") == 0) { if (read_token(&cursor, srv, 16)) command_server_fs_dirs(srv); else print_string("Uso: server fs dirs <srv>\n", 0x0C); }
+        else if (__builtin_strcmp(op, "mkdir") == 0) { if (read_token(&cursor, srv, 16) && read_token(&cursor, dir, 16)) command_server_fs_mkdir(srv, dir); else print_string("Uso: server fs mkdir <srv> <dir>\n", 0x0C); }
+        else if (__builtin_strcmp(op, "touch") == 0) { if (read_token(&cursor, srv, 16) && read_token(&cursor, dir, 16) && read_token(&cursor, file, 16)) command_server_fs_touch(srv, dir, file); else print_string("Uso: server fs touch <srv> <dir> <file>\n", 0x0C); }
+        else if (__builtin_strcmp(op, "ls") == 0) { if (read_token(&cursor, srv, 16) && read_token(&cursor, dir, 16)) command_server_fs_ls(srv, dir); else print_string("Uso: server fs ls <srv> <dir>\n", 0x0C); }
+        else if (__builtin_strcmp(op, "cat") == 0) { if (read_token(&cursor, srv, 16) && read_token(&cursor, dir, 16) && read_token(&cursor, file, 16)) command_server_fs_cat(srv, dir, file); else print_string("Uso: server fs cat <srv> <dir> <file>\n", 0x0C); }
+        else if (__builtin_strcmp(op, "write") == 0) { const char *txt; if (read_token(&cursor, srv, 16) && read_token(&cursor, dir, 16) && read_token(&cursor, file, 16)) { txt = skip_spaces(cursor); command_server_fs_write(srv, dir, file, txt); } else print_string("Uso: server fs write <srv> <dir> <file> <txt>\n", 0x0C); }
+        else if (__builtin_strcmp(op, "rm") == 0) { if (read_token(&cursor, srv, 16) && read_token(&cursor, dir, 16) && read_token(&cursor, file, 16)) command_server_fs_rm(srv, dir, file); else print_string("Uso: server fs rm <srv> <dir> <file>\n", 0x0C); }
+        else if (__builtin_strcmp(op, "rmdir") == 0) { if (read_token(&cursor, srv, 16) && read_token(&cursor, dir, 16)) command_server_fs_rmdir(srv, dir); else print_string("Uso: server fs rmdir <srv> <dir>\n", 0x0C); }
+        else if (__builtin_strcmp(op, "chmod") == 0) { if (read_token(&cursor, srv, 16) && read_token(&cursor, dir, 16) && read_token(&cursor, file, 16) && read_token(&cursor, mode, 8)) command_server_fs_chmod(srv, dir, file, mode); else print_string("Uso: server fs chmod <srv> <dir> <file> <r|w|rw>\n", 0x0C); }
+        else print_string("Operacion fs no valida\n", 0x0C);
     }
     else if (__builtin_strcmp(command, "clear") == 0) {
         clear_screen();
@@ -738,6 +1117,8 @@ void kernel_main() {
     
     // Inicializar subsistemas
     init_process_table();
+    init_server_manager();
+    init_server_filesystem();
     setup_idt();
     
     print_string("Características:\n", 0x0E);
@@ -746,7 +1127,8 @@ void kernel_main() {
     print_string("  > Prioridades (0-9)\n", 0x0E);
     print_string("  > Estados: RUNNING, READY, SLEEP, ZOMBIE\n", 0x0E);
     print_string("  > Comando TOP con CPU tracking\n", 0x0E);
-    print_string("  > GDT + Descriptores Ring 3\n\n", 0x0E);
+    print_string("  > GDT + Descriptores Ring 3\n", 0x0E);
+    print_string("  > Gestor de servidores y CMD integrado\n\n", 0x0E);
     
     print_string("Escribe 'help' para ver comandos\n\n", 0x0F);
 
