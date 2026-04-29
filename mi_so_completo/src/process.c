@@ -26,6 +26,8 @@ void init_process_table() {
         process_table[i].pid = -1;
         process_table[i].state = PROC_EMPTY;
         process_table[i].wait_ticks = 0;
+        process_table[i].parent_pid = -1;
+        process_table[i].exit_code = 0;
     }
 
     process_table[0].pid = 0;
@@ -37,6 +39,8 @@ void init_process_table() {
     process_table[0].sleep_ticks = 0;
     process_table[0].cpu_time = 0;
     process_table[0].wait_ticks = 0;
+    process_table[0].parent_pid = -1;
+    process_table[0].exit_code = 0;
     process_table[0].context.valid = 1;
     process_table[0].context.cs = 0x08;
     process_table[0].context.ss = 0x10;
@@ -59,6 +63,8 @@ int create_process(const char *name, uint32_t mem_size) {
     process_table[pid].sleep_ticks = 0;
     process_table[pid].cpu_time = 0;
     process_table[pid].wait_ticks = 0;
+    process_table[pid].parent_pid = current_pid;
+    process_table[pid].exit_code = 0;
 
     uint32_t base = 0x10000;
     for (int i = 1; i < pid; i++) {
@@ -95,6 +101,7 @@ void kill_process(int pid) {
         print_string("Error: no se puede matar el kernel\n", 0x0C);
         return;
     }
+    process_table[pid].exit_code = 0;
     process_table[pid].state = PROC_ZOMBIE;
 }
 

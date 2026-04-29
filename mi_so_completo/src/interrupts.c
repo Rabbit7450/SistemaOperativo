@@ -250,6 +250,48 @@ static uint32_t syscall_handler(uint32_t syscall_num, uint32_t arg1, uint32_t ar
             }
             return 0;
         }
+        case SYS_READ: {
+            // arg1 = buffer pointer, arg2 = max length
+            if (!user_ptr_ok(arg1, arg2)) return (uint32_t)-1;
+            char *buf = (char *)arg1;
+            char c = get_key();
+            buf[0] = c;
+            print_char(c, 0x0F);
+            return 1;
+        }
+        case SYS_FORK: {
+            // Crear proceso hijo como copia del padre
+            if (next_pid >= MAX_PROCESSES) return (uint32_t)-1;
+            int child_pid = create_process(process_table[current_pid].name, 0x2000);
+            if (child_pid < 0) return (uint32_t)-1;
+            process_table[child_pid].parent_pid = current_pid;
+            process_table[child_pid].context = process_table[current_pid].context;
+            return child_pid;
+        }
+        case SYS_WAIT: {
+            // arg1 = child PID a esperar
+            int child_pid = arg1;
+            if (child_pid < 1 || child_pid >= MAX_PROCESSES) return (uint32_t)-1;
+            if (process_table[child_pid].parent_pid != current_pid) return (uint32_t)-1;
+            // Esperar a que el hijo termine
+            while (process_table[child_pid].state != PROC_ZOMBIE && 
+                   process_table[child_pid].state != PROC_EMPTY) {
+                sleep_process(current_pid, 1);
+            }
+            int exit_code = process_table[child_pid].exit_code;
+            process_table[child_pid].state = PROC_EMPTY;
+            return exit_code;
+        }
+        case SYS_YIELD: {
+            // Ceder voluntariamente el CPU al siguiente proceso
+            process_table[current_pid].state = PROC_READY;
+            process_tick();
+            return 0;
+        }
+        case SYS_GETPPID: {
+            // Obtener PID del proceso padre
+            return process_table[current_pid].parent_pid;
+        }
         default:
             return (uint32_t)-1;
     }

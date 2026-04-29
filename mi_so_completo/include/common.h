@@ -29,6 +29,11 @@
 #define SYS_SETPRIO 5
 #define SYS_GETPRIO 6
 #define SYS_WRITE 7
+#define SYS_READ 8
+#define SYS_FORK 9
+#define SYS_WAIT 10
+#define SYS_YIELD 11
+#define SYS_GETPPID 12
 
 typedef struct {
     uint32_t eax, ebx, ecx, edx;
@@ -50,6 +55,8 @@ typedef struct {
     int sleep_ticks;
     int cpu_time;
     int wait_ticks;
+    int parent_pid;
+    int exit_code;
 } Process;
 
 typedef struct {

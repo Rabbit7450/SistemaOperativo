@@ -36,13 +36,59 @@ void execute_command() {
     if (command[0] == '\0') return;
 
     if (__builtin_strcmp(command, "help") == 0) {
-        print_string("Comandos del SO v3.2 modular:\n", 0x0A);
-        print_string("  help clear about uptime memory\n", 0x0A);
-        print_string("  whoami login logout cmd principales\n", 0x0A);
-        print_string("  ps top exec runu kill sleep priority\n", 0x0A);
-        print_string("  add echo\n", 0x0A);
-        print_string("  server list|status|start|stop|restart|backup|restore|audit\n", 0x0A);
-        print_string("  server fs dirs|mkdir|touch|ls|write|cat|rm|rmdir|chmod\n", 0x0A);
+        print_string("\n", 0x0F);
+        print_string("═══════════════════════════════════════════════════════════\n", 0x0E);
+        print_string("       MANUAL DEL SISTEMA OPERATIVO v3.3 MODULAR\n", 0x0E);
+        print_string("═══════════════════════════════════════════════════════════\n", 0x0E);
+        
+        print_string("\n[SYSCALLS NUEVAS]\n", 0x0A);
+        print_string("  getppid PID  - Ver PID del proceso padre\n", 0x0F);
+        print_string("  fork         - Crear nuevo proceso hijo\n", 0x0F);
+        print_string("  wait PID     - Esperar a que proceso termine\n", 0x0F);
+        print_string("  yield        - Ceder CPU voluntariamente\n", 0x0F);
+        print_string("  read         - Leer entrada del teclado\n", 0x0F);
+        print_string("  stats        - Ver estadísticas del SO\n", 0x0F);
+        
+        print_string("\n[MONITOREO]\n", 0x0A);
+        print_string("  ps           - Listar procesos activos\n", 0x0F);
+        print_string("  top          - Monitor detallado de procesos\n", 0x0F);
+        print_string("  memory       - Ver uso de memoria\n", 0x0F);
+        print_string("  uptime       - Ver tiempo de actividad\n", 0x0F);
+        
+        print_string("\n[PROCESOS]\n", 0x0A);
+        print_string("  exec NAME    - Crear proceso usuario\n", 0x0F);
+        print_string("  runu PID     - Ejecutar proceso en Ring 3\n", 0x0F);
+        print_string("  kill PID     - Terminar proceso\n", 0x0F);
+        print_string("  sleep PID S  - Dormir proceso S segundos\n", 0x0F);
+        print_string("  priority P P - Cambiar prioridad (0-9)\n", 0x0F);
+        
+        print_string("\n[SISTEMA]\n", 0x0A);
+        print_string("  clear        - Limpiar pantalla\n", 0x0F);
+        print_string("  about        - Información del SO\n", 0x0F);
+        print_string("  help         - Este mensaje\n", 0x0F);
+        print_string("  help syscalls- Listar syscalls disponibles\n", 0x0F);
+        
+        print_string("\n[HERRAMIENTAS]\n", 0x0A);
+        print_string("  add X Y      - Sumar dos números\n", 0x0F);
+        print_string("  echo TEXTO   - Imprimir texto\n", 0x0F);
+        
+        print_string("\n═══════════════════════════════════════════════════════════\n", 0x0E);
+        print_string("\n", 0x0F);
+    }
+    else if (__builtin_strcmp(command, "help syscalls") == 0) {
+        print_string("Syscalls disponibles:\n", 0x0A);
+        print_string("  1  SYS_EXIT(code)        - Terminar proceso\n", 0x0A);
+        print_string("  2  SYS_GETPID()          - Obtener PID actual\n", 0x0A);
+        print_string("  3  SYS_GETMEM()          - Obtener tamaño memoria\n", 0x0A);
+        print_string("  4  SYS_SLEEP(seconds)    - Dormir proceso\n", 0x0A);
+        print_string("  5  SYS_SETPRIO(pid, p)   - Cambiar prioridad\n", 0x0A);
+        print_string("  6  SYS_GETPRIO(pid)      - Obtener prioridad\n", 0x0A);
+        print_string("  7  SYS_WRITE(buf, len)   - Escribir a pantalla\n", 0x0A);
+        print_string("  8  SYS_READ(buf, len)    - Leer teclado\n", 0x0A);
+        print_string("  9  SYS_FORK()            - Crear proceso hijo\n", 0x0A);
+        print_string("  10 SYS_WAIT(pid)         - Esperar proceso\n", 0x0A);
+        print_string("  11 SYS_YIELD()           - Ceder CPU\n", 0x0A);
+        print_string("  12 SYS_GETPPID()         - Obtener PID padre\n", 0x0A);
     }
     else if (__builtin_strcmp(command, "cmd") == 0) {
         print_string("CMD Integrado - Gestion Linux\n", 0x0B);
@@ -77,54 +123,84 @@ void execute_command() {
         clear_screen();
     }
     else if (__builtin_strcmp(command, "ps") == 0) {
-        print_string("PID  NOMBRE            ESTADO    MEM(KB)\n", 0x0B);
+        print_string("\n", 0x0F);
+        print_string("  PID NOMBRE           ESTADO  PRIO   PADRE  MEM\n", 0x0E);
+        print_string("  --- -----------      ------- ----   -----  ----\n", 0x0E);
         for (int i = 0; i < MAX_PROCESSES; i++) {
             if (process_table[i].state != PROC_EMPTY) {
                 char buf[20];
+                print_string("  ", 0x0F);
                 int_to_str(process_table[i].pid, buf);
+                if (process_table[i].pid < 10) print_string(" ", 0x0F);
                 print_string(buf, 0x0F);
                 print_string(" ", 0x0F);
                 print_string(process_table[i].name, 0x0F);
+                for (int j = __builtin_strlen(process_table[i].name); j < 16; j++) print_string(" ", 0x0F);
                 print_string(" ", 0x0F);
                 switch (process_table[i].state) {
-                    case PROC_RUNNING: print_string("RUN", 0x0A); break;
-                    case PROC_READY: print_string("READY", 0x0B); break;
-                    case PROC_SLEEP: print_string("SLEEP", 0x0E); break;
-                    case PROC_ZOMBIE: print_string("ZOMB", 0x0C); break;
-                    default: print_string("?", 0x0F); break;
-                }
-                print_string("\n", 0x0F);
-            }
-        }
-    }
-    else if (__builtin_strcmp(command, "top") == 0) {
-        print_string("PID  NOMBRE       ST     PRIO  MEM(KB) CPU\n", 0x0B);
-        for (int i = 0; i < MAX_PROCESSES; i++) {
-            if (process_table[i].state != PROC_EMPTY) {
-                char buf[20];
-                int_to_str(process_table[i].pid, buf);
-                print_string(buf, 0x0F);
-                print_string("   ", 0x0F);
-                print_string(process_table[i].name, 0x0F);
-                print_string(" ", 0x0F);
-                switch (process_table[i].state) {
-                    case PROC_RUNNING: print_string("RUN   ", 0x0A); break;
-                    case PROC_READY: print_string("READY ", 0x0B); break;
-                    case PROC_SLEEP: print_string("SLEEP ", 0x0E); break;
-                    case PROC_ZOMBIE: print_string("ZOMB  ", 0x0C); break;
-                    default: print_string("?     ", 0x0F); break;
+                    case PROC_RUNNING: print_string("RUN    ", 0x0A); break;
+                    case PROC_READY: print_string("READY  ", 0x0B); break;
+                    case PROC_SLEEP: print_string("SLEEP  ", 0x0E); break;
+                    case PROC_ZOMBIE: print_string("ZOMBIE ", 0x0C); break;
+                    default: print_string("?      ", 0x0F); break;
                 }
                 int_to_str(process_table[i].priority, buf);
+                if (process_table[i].priority < 10) print_string(" ", 0x0F);
+                print_string(buf, 0x0F);
+                print_string("    ", 0x0F);
+                int_to_str(process_table[i].parent_pid, buf);
+                if (process_table[i].parent_pid < 10) print_string(" ", 0x0F);
                 print_string(buf, 0x0F);
                 print_string("     ", 0x0F);
                 int_to_str(process_table[i].memory_size / 1024, buf);
                 print_string(buf, 0x0F);
-                print_string("      ", 0x0F);
+                print_string("K\n", 0x0F);
+            }
+        }
+        print_string("\n", 0x0F);
+    }
+    else if (__builtin_strcmp(command, "top") == 0) {
+        print_string("\n", 0x0F);
+        print_string("===== MONITOR DE PROCESOS (TOP) ====\n", 0x0E);
+        print_string("PID  NAME          STATE   PRIO MEM(K) CPU  PPID\n", 0x0E);
+        print_string("--- -------------- ------- ---- ------ ---- ----\n", 0x0E);
+        for (int i = 0; i < MAX_PROCESSES; i++) {
+            if (process_table[i].state != PROC_EMPTY) {
+                char buf[20];
+                int_to_str(process_table[i].pid, buf);
+                if (process_table[i].pid < 10) print_string(" ", 0x0F);
+                print_string(buf, 0x0F);
+                print_string("  ", 0x0F);
+                print_string(process_table[i].name, 0x0F);
+                for (int j = __builtin_strlen(process_table[i].name); j < 14; j++) print_string(" ", 0x0F);
+                switch (process_table[i].state) {
+                    case PROC_RUNNING: print_string("RUN    ", 0x0A); break;
+                    case PROC_READY: print_string("READY  ", 0x0B); break;
+                    case PROC_SLEEP: print_string("SLEEP  ", 0x0E); break;
+                    case PROC_ZOMBIE: print_string("ZOMBIE ", 0x0C); break;
+                    default: print_string("?      ", 0x0F); break;
+                }
+                int_to_str(process_table[i].priority, buf);
+                if (process_table[i].priority < 10) print_string(" ", 0x0F);
+                print_string(buf, 0x0F);
+                print_string("  ", 0x0F);
+                int_to_str(process_table[i].memory_size / 1024, buf);
+                if (process_table[i].memory_size / 1024 < 100) print_string(" ", 0x0F);
+                if (process_table[i].memory_size / 1024 < 10) print_string(" ", 0x0F);
+                print_string(buf, 0x0F);
+                print_string("  ", 0x0F);
                 int_to_str(process_table[i].cpu_time, buf);
+                if (process_table[i].cpu_time < 10) print_string(" ", 0x0F);
+                print_string(buf, 0x0F);
+                print_string("  ", 0x0F);
+                int_to_str(process_table[i].parent_pid, buf);
+                if (process_table[i].parent_pid < 10) print_string(" ", 0x0F);
                 print_string(buf, 0x0F);
                 print_string("\n", 0x0F);
             }
         }
+        print_string("=====================================\n", 0x0E);
+        print_string("\n", 0x0F);
     }
     else if (starts_with(command, "exec ")) {
         int pid = create_process(command + 5, 4096);
@@ -201,6 +277,7 @@ void execute_command() {
     }
     else if (__builtin_strcmp(command, "about") == 0) {
         print_string("Mi SO v3.3 modular\n", 0x0D);
+        print_string("Con syscalls avanzadas: fork, wait, yield, read, getppid\n", 0x0D);
     }
     else if (__builtin_strcmp(command, "server list") == 0) {
         command_server_list();
@@ -274,6 +351,159 @@ void execute_command() {
         else {
             print_string("Operacion fs no valida\n", 0x0C);
         }
+    }
+    else if (starts_with(command, "getppid ")) {
+        int pid = parse_number(command + 8);
+        if (pid >= 0 && pid < MAX_PROCESSES && process_table[pid].state != PROC_EMPTY) {
+            char buf[20];
+            print_string("PID ", 0x0F);
+            int_to_str(pid, buf);
+            print_string(buf, 0x0F);
+            print_string(" -> Padre: ", 0x0F);
+            int_to_str(process_table[pid].parent_pid, buf);
+            print_string(buf, 0x0F);
+            print_string("\n", 0x0F);
+        } else {
+            print_string("Error: proceso no existe\n", 0x0C);
+        }
+    }
+    else if (__builtin_strcmp(command, "fork") == 0) {
+        int child = create_process("hijo", 0x2000);
+        if (child >= 0) {
+            char buf[20];
+            print_string("Proceso hijo creado: PID ", 0x0A);
+            int_to_str(child, buf);
+            print_string(buf, 0x0A);
+            print_string("\n", 0x0A);
+        } else {
+            print_string("Error: no se pudo crear proceso\n", 0x0C);
+        }
+    }
+    else if (starts_with(command, "wait ")) {
+        int pid = parse_number(command + 5);
+        if (pid > 0 && pid < MAX_PROCESSES) {
+            print_string("Esperando a proceso ", 0x0B);
+            char buf[20];
+            int_to_str(pid, buf);
+            print_string(buf, 0x0B);
+            print_string("...\n", 0x0B);
+            int count = 0;
+            while (process_table[pid].state != PROC_ZOMBIE && 
+                   process_table[pid].state != PROC_EMPTY && count < 1000) {
+                count++;
+            }
+            if (process_table[pid].state == PROC_ZOMBIE) {
+                print_string("Proceso terminado\n", 0x0A);
+                process_table[pid].state = PROC_EMPTY;
+            } else {
+                print_string("Timeout esperando proceso\n", 0x0C);
+            }
+        } else {
+            print_string("Error: PID invalido\n", 0x0C);
+        }
+    }
+    else if (__builtin_strcmp(command, "yield") == 0) {
+        print_string("Cediendo CPU...\n", 0x0F);
+        process_table[current_pid].state = PROC_READY;
+    }
+    else if (__builtin_strcmp(command, "read") == 0) {
+        print_string("Escribe algo: ", 0x0E);
+        char buf[80];
+        for (int i = 0; i < 79; i++) {
+            char c = get_key();
+            if (c == '\r') {
+                buf[i] = '\0';
+                print_char('\n', 0x0E);
+                break;
+            }
+            if (c == '\b' && i > 0) {
+                i -= 2;
+                print_char('\b', 0x0E);
+                continue;
+            }
+            if (c >= 32 && c < 127) {
+                buf[i] = c;
+                print_char(c, 0x0E);
+            } else {
+                i--;
+            }
+        }
+        print_string("Leido: ", 0x0A);
+        print_string(buf, 0x0A);
+        print_string("\n", 0x0A);
+    }
+    else if (__builtin_strcmp(command, "stats") == 0) {
+        print_string("\n", 0x0F);
+        print_string("╔════════════════════════════════════════╗\n", 0x0D);
+        print_string("║   ESTADISTICAS DEL SISTEMA OPERATIVO   ║\n", 0x0D);
+        print_string("╠════════════════════════════════════════╣\n", 0x0D);
+        
+        char buf[20];
+        int_to_str(timer_ticks / 100, buf);
+        print_string("║ Uptime (segundos): ", 0x0F);
+        print_string(buf, 0x0F);
+        print_string(" s", 0x0F);
+        for (int j = 3 + __builtin_strlen(buf); j < 38; j++) print_string(" ", 0x0F);
+        print_string("║\n", 0x0F);
+        
+        int count = 0;
+        for (int i = 0; i < MAX_PROCESSES; i++) {
+            if (process_table[i].state != PROC_EMPTY) count++;
+        }
+        print_string("║ Procesos activos: ", 0x0F);
+        int_to_str(count, buf);
+        print_string(buf, 0x0F);
+        print_string(" / ", 0x0F);
+        int_to_str(MAX_PROCESSES, buf);
+        print_string(buf, 0x0F);
+        for (int j = 18 + __builtin_strlen(buf) + __builtin_strlen(buf) + 3; j < 38; j++) print_string(" ", 0x0F);
+        print_string("║\n", 0x0F);
+        
+        print_string("╠════════════════════════════════════════╣\n", 0x0D);
+        print_string("║ Estado de Procesos:                    ║\n", 0x0D);
+        
+        print_string("║   RUNNING: ", 0x0F);
+        count = 0;
+        for (int i = 0; i < MAX_PROCESSES; i++) {
+            if (process_table[i].state == PROC_RUNNING) count++;
+        }
+        int_to_str(count, buf);
+        print_string(buf, 0x0F);
+        for (int j = 11 + __builtin_strlen(buf); j < 38; j++) print_string(" ", 0x0F);
+        print_string("║\n", 0x0F);
+        
+        print_string("║   READY:   ", 0x0F);
+        count = 0;
+        for (int i = 0; i < MAX_PROCESSES; i++) {
+            if (process_table[i].state == PROC_READY) count++;
+        }
+        int_to_str(count, buf);
+        print_string(buf, 0x0F);
+        for (int j = 11 + __builtin_strlen(buf); j < 38; j++) print_string(" ", 0x0F);
+        print_string("║\n", 0x0F);
+        
+        print_string("║   SLEEP:   ", 0x0F);
+        count = 0;
+        for (int i = 0; i < MAX_PROCESSES; i++) {
+            if (process_table[i].state == PROC_SLEEP) count++;
+        }
+        int_to_str(count, buf);
+        print_string(buf, 0x0F);
+        for (int j = 11 + __builtin_strlen(buf); j < 38; j++) print_string(" ", 0x0F);
+        print_string("║\n", 0x0F);
+        
+        print_string("║   ZOMBIE:  ", 0x0F);
+        count = 0;
+        for (int i = 0; i < MAX_PROCESSES; i++) {
+            if (process_table[i].state == PROC_ZOMBIE) count++;
+        }
+        int_to_str(count, buf);
+        print_string(buf, 0x0F);
+        for (int j = 11 + __builtin_strlen(buf); j < 38; j++) print_string(" ", 0x0F);
+        print_string("║\n", 0x0F);
+        
+        print_string("╚════════════════════════════════════════╝\n", 0x0D);
+        print_string("\n", 0x0F);
     }
     else {
         print_string("Comando no encontrado. Escribe 'help'\n", 0x0C);
