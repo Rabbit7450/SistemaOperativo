@@ -28,6 +28,7 @@
 #define SYS_SLEEP 4
 #define SYS_SETPRIO 5
 #define SYS_GETPRIO 6
+#define SYS_WRITE 7
 
 typedef struct {
     uint32_t eax, ebx, ecx, edx;
@@ -48,6 +49,7 @@ typedef struct {
     UserContext context;
     int sleep_ticks;
     int cpu_time;
+    int wait_ticks;
 } Process;
 
 typedef struct {

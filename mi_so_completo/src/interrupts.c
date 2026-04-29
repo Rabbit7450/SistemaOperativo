@@ -73,6 +73,7 @@ static void remap_pic() {
 static volatile char keyboard_buffer[KBD_BUFFER_SIZE];
 static volatile int keyboard_head = 0;
 static volatile int keyboard_tail = 0;
+static volatile int keyboard_pending = 0;
 
 static const char keyboard_map[128] = {
     0,  27, '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=',
@@ -91,6 +92,7 @@ static void keyboard_push(char c) {
     if (next == keyboard_tail) return;
     keyboard_buffer[keyboard_head] = c;
     keyboard_head = next;
+    keyboard_pending = 1;
 }
 
 static int keyboard_pop(char *out) {
@@ -107,23 +109,21 @@ char get_key() {
     }
 
     while (1) {
-        if ((inb(0x64) & 0x01) == 0) {
-            continue;
-        }
-
-        uint8_t scancode = inb(0x60);
-        if (scancode & 0x80) {
-            continue;
-        }
-
-        if (scancode < 128) {
-            char c = keyboard_map[scancode];
-            if (c != 0) {
-                keyboard_push(c);
-                return c;
-            }
-        }
+        keyboard_pending = 0;
+        __asm__ __volatile__("hlt");
+        if (keyboard_pop(&buffered)) return buffered;
     }
+}
+
+static int user_ptr_ok(uint32_t addr, uint32_t len) {
+    uint32_t start = process_table[current_pid].memory_start;
+    uint32_t end = start + process_table[current_pid].memory_size;
+    if (addr < start) return 0;
+    if (addr >= end) return 0;
+    if (len == 0) return 1;
+    if (addr + len < addr) return 0;
+    if (addr + len > end) return 0;
+    return 1;
 }
 
 static void exception_handler_code(uint32_t vector) {
@@ -238,6 +238,18 @@ static uint32_t syscall_handler(uint32_t syscall_num, uint32_t arg1, uint32_t ar
                 return process_table[arg1].priority;
             }
             return (uint32_t)-1;
+        case SYS_WRITE: {
+            const char *p = (const char*)arg1;
+            uint32_t max = arg2;
+            if (max > 200) max = 200;
+            if (!user_ptr_ok((uint32_t)p, max)) return (uint32_t)-1;
+            for (uint32_t i = 0; i < max; i++) {
+                char c = p[i];
+                if (c == '\0') break;
+                print_char(c, 0x0F);
+            }
+            return 0;
+        }
         default:
             return (uint32_t)-1;
     }
@@ -296,12 +308,25 @@ __attribute__((naked)) static void int80_stub() {
 
 void user_program() {
     __asm__ __volatile__(
+        "push $0\n"
+        "push $'\\n'\n"
+        "push $'!'\n"
+        "push $'O'\n"
+        "push $'S'\n"
+        "push $' '\n"
+        "push $'i'\n"
+        "push $'M'\n"
+        "mov %%esp, %%ebx\n"
+        "mov $8, %%ecx\n"
+        "mov $7, %%eax\n"
+        "int $0x80\n"
+        "add $32, %%esp\n"
         "mov $1, %%eax\n"
         "mov $0, %%ebx\n"
         "int $0x80\n"
         :
         :
-        : "eax", "ebx"
+        : "eax", "ebx", "ecx"
     );
     while (1) {}
 }

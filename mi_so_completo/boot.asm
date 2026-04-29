@@ -9,6 +9,8 @@ start:
     mov ss, ax
     mov sp, 0x7c00           ; Stack debajo del bootloader
     
+    mov [boot_drive], dl
+    
     ; Limpiar pantalla y modo video
     mov ax, 0x03
     int 0x10
@@ -18,6 +20,12 @@ start:
     call print_string
 
     ; Cargar kernel desde disco
+    mov dl, [boot_drive]
+    xor ah, ah
+    int 0x13
+
+    mov byte [read_tries], 3
+.read_try:
     mov bx, 0x1000           ; Dirección de destino (segmento)
     mov es, bx
     mov bx, 0x0000           ; Offset dentro del segmento
@@ -26,11 +34,15 @@ start:
     mov ch, 0                ; Cilindro 0
     mov cl, 2                ; Sector 2 (después del bootloader)
     mov dh, 0                ; Cabeza 0
-    mov dl, 0x00             ; Unidad 0 (disquete A:)
+    mov dl, [boot_drive]     ; Unidad desde BIOS
     int 0x13
     
     ; Verificar si hubo error
-    jc disk_error
+    jnc .disk_ok
+    dec byte [read_tries]
+    jnz .read_try
+    jmp disk_error
+.disk_ok:
 
     ; Deshabilitar interrupciones y preparar modo protegido
     cli
@@ -62,6 +74,8 @@ print_string:
 
 msg_loading db 'Bootloader v3.1: Cargando kernel...', 0x0d, 0x0a, 0
 msg_error db 'ERROR: No se pudo cargar el kernel', 0x0d, 0x0a, 0
+boot_drive db 0
+read_tries db 0
 
 ; ============================================
 ; GDT (Global Descriptor Table)

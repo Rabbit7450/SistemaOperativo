@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-ffreestanding -m32 -Wall -Wextra -Iinclude
+CFLAGS=-ffreestanding -m32 -Wall -Wextra -fno-pie -fno-pic -fno-stack-protector -fno-asynchronous-unwind-tables -Iinclude
 LD=ld
 LDFLAGS=-m elf_i386
 

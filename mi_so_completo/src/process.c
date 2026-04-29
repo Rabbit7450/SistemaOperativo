@@ -8,6 +8,7 @@ Process process_table[MAX_PROCESSES];
 int current_pid = 0;
 int next_pid = 1;
 int timer_ticks = 0;
+static int last_rr_pid = 0;
 
 #define REG_EDI 0
 #define REG_ESI 1
@@ -24,6 +25,7 @@ void init_process_table() {
     for (int i = 0; i < MAX_PROCESSES; i++) {
         process_table[i].pid = -1;
         process_table[i].state = PROC_EMPTY;
+        process_table[i].wait_ticks = 0;
     }
 
     process_table[0].pid = 0;
@@ -34,6 +36,7 @@ void init_process_table() {
     process_table[0].mode = KERNEL_MODE;
     process_table[0].sleep_ticks = 0;
     process_table[0].cpu_time = 0;
+    process_table[0].wait_ticks = 0;
     process_table[0].context.valid = 1;
     process_table[0].context.cs = 0x08;
     process_table[0].context.ss = 0x10;
@@ -55,6 +58,7 @@ int create_process(const char *name, uint32_t mem_size) {
     process_table[pid].mode = USER_MODE;
     process_table[pid].sleep_ticks = 0;
     process_table[pid].cpu_time = 0;
+    process_table[pid].wait_ticks = 0;
 
     uint32_t base = 0x10000;
     for (int i = 1; i < pid; i++) {
@@ -113,22 +117,27 @@ void sleep_process(int pid, int seconds) {
 }
 
 int get_best_process() {
-    int best_pid = -1;
     int best_priority = 10;
 
     for (int i = 0; i < MAX_PROCESSES; i++) {
-        if (process_table[i].state == PROC_READY) {
-            if (process_table[i].priority < best_priority) {
-                best_priority = process_table[i].priority;
-                best_pid = i;
-            }
+        if (process_table[i].state == PROC_READY && process_table[i].priority < best_priority) {
+            best_priority = process_table[i].priority;
         }
     }
 
-    if (best_pid == -1) {
+    if (best_priority == 10) {
         return current_pid;
     }
-    return best_pid;
+
+    for (int step = 1; step <= MAX_PROCESSES; step++) {
+        int pid = (last_rr_pid + step) % MAX_PROCESSES;
+        if (process_table[pid].state == PROC_READY && process_table[pid].priority == best_priority) {
+            last_rr_pid = pid;
+            return pid;
+        }
+    }
+
+    return current_pid;
 }
 
 void save_context_from_regs(int pid, uint32_t *regs) {
@@ -171,6 +180,7 @@ void process_tick() {
             process_table[i].sleep_ticks--;
             if (process_table[i].sleep_ticks <= 0) {
                 process_table[i].state = PROC_READY;
+                process_table[i].wait_ticks = 0;
             }
         }
     }
@@ -179,6 +189,19 @@ void process_tick() {
         if (process_table[i].state == PROC_ZOMBIE) {
             process_table[i].state = PROC_EMPTY;
             process_table[i].pid = -1;
+            process_table[i].wait_ticks = 0;
+        }
+    }
+
+    for (int i = 1; i < MAX_PROCESSES; i++) {
+        if (process_table[i].state == PROC_READY) {
+            process_table[i].wait_ticks++;
+            if (process_table[i].wait_ticks >= 50) {
+                process_table[i].wait_ticks = 0;
+                if (process_table[i].priority > 0) {
+                    process_table[i].priority--;
+                }
+            }
         }
     }
 
@@ -192,6 +215,7 @@ void process_tick() {
             current_pid = next_process;
             process_table[current_pid].state = PROC_RUNNING;
             process_table[current_pid].cpu_time++;
+            process_table[current_pid].wait_ticks = 0;
         }
     }
 }
