@@ -2,6 +2,8 @@
 #include "servers.h"
 #include "vga.h"
 #include "utils.h"
+#include "serial.h"
+#include "process.h"
 
 ServerService server_table[MAX_SERVERS];
 ServerDirectory server_dirs[MAX_SERVERS][MAX_SERVER_DIRS];
@@ -77,6 +79,9 @@ static void add_server(const char *name, int active, int cpu, int mem, int healt
 void init_server_manager() {
     server_count = 0;
     add_server("nginx", 1, 12, 64, 95);
+    add_server("apache", 1, 5, 128, 98);
+    // Notify via serial for headless runs
+    serial_print("[init] apache server registered\n");
     add_server("postgres", 1, 20, 512, 97);
     add_server("redis", 1, 6, 128, 96);
     add_server("sshd", 1, 2, 32, 99);
@@ -109,6 +114,16 @@ void init_server_filesystem() {
         copy_string(server_dirs[s][0].name, "etc", 16);
         server_dirs[s][1].used = 1;
         copy_string(server_dirs[s][1].name, "logs", 16);
+        // If apache, create web root and default index
+        if (__builtin_strcmp(server_table[s].name, "apache") == 0) {
+            server_dirs[s][2].used = 1;
+            copy_string(server_dirs[s][2].name, "www", 16);
+            // Add an index.html file
+            server_files[s][0].used = 1;
+            copy_string(server_files[s][0].dir, "www", 16);
+            copy_string(server_files[s][0].name, "index.html", 16);
+            copy_string(server_files[s][0].content, "<html><body><h1>Bienvenido a Apache Simulado</h1></body></html>", MAX_FILE_CONTENT);
+        }
     }
 }
 
@@ -121,6 +136,39 @@ void server_tick(int ticks) {
             server_table[i].cpu_load = (server_table[i].cpu_load + i + 3) % 60;
             if (server_table[i].cpu_load < 3) {
                 server_table[i].cpu_load = 3;
+            }
+            // Simulate simple HTTP requests for apache
+            if (__builtin_strcmp(server_table[i].name, "apache") == 0) {
+                char logbuf[128];
+                // Build timestamp from timer_ticks
+                int secs = timer_ticks / 100;
+                int hh = (secs / 3600) % 24;
+                int mm = (secs / 60) % 60;
+                int ss = secs % 60;
+                char tbuf[16];
+                // Format HH:MM:SS
+                char th[3], tm[3], ts[3];
+                int_to_str(hh, th); if (hh < 10) { th[1] = th[0]; th[0] = '0'; th[2] = '\0'; } else th[2] = '\0';
+                int_to_str(mm, tm); if (mm < 10) { tm[1] = tm[0]; tm[0] = '0'; tm[2] = '\0'; } else tm[2] = '\0';
+                int_to_str(ss, ts); if (ss < 10) { ts[1] = ts[0]; ts[0] = '0'; ts[2] = '\0'; } else ts[2] = '\0';
+                tbuf[0]=th[0]; tbuf[1]=th[1]; tbuf[2]=':'; tbuf[3]=tm[0]; tbuf[4]=tm[1]; tbuf[5]=':'; tbuf[6]=ts[0]; tbuf[7]=ts[1]; tbuf[8]='\0';
+                // Simulate remote IP
+                int a = 192, b = 168, c = (timer_ticks/50)%255, d = (timer_ticks/7)%255;
+                char ipbuf[24];
+                // simple ip string
+                copy_string(ipbuf, "192.168.", 24);
+                // append c.d (quick manual append)
+                char tmp[8]; int_to_str(c, tmp); int idx = 8; int j=0; while(tmp[j]) { ipbuf[idx++]=tmp[j++]; } ipbuf[idx++]='.'; int_to_str(d, tmp); j=0; while(tmp[j]) { ipbuf[idx++]=tmp[j++]; } ipbuf[idx]='\0';
+                // Create a fake request log entry with timestamp and IP
+                copy_string(logbuf, tbuf, 128);
+                copy_string(logbuf + strlen(logbuf), " ", 128 - strlen(logbuf));
+                copy_string(logbuf + strlen(logbuf), ipbuf, 128 - strlen(logbuf));
+                copy_string(logbuf + strlen(logbuf), " \"GET /index.html HTTP/1.1\" 200", 128 - strlen(logbuf));
+                copy_string(logbuf + strlen(logbuf), "\n", 128 - strlen(logbuf));
+                add_audit_log(logbuf);
+                serial_print(logbuf);
+                // Slightly increase CPU when serving
+                server_table[i].cpu_load = (server_table[i].cpu_load + 5) % 100;
             }
         }
     }
@@ -239,6 +287,120 @@ void command_server_audit() {
         print_string(audit_logs[i], 0x0F);
         print_string("\n", 0x0F);
     }
+}
+
+void command_apache_logs() {
+    print_string("APACHE LOGS:\n", 0x0B);
+    int found = 0;
+    for (int i = 0; i < audit_count; i++) {
+        if (__builtin_strcmp(audit_logs[i], "") != 0) {
+            // Simple prefix check for apache entries
+            if (audit_logs[i][0] == 'a' && audit_logs[i][1] == 'p' && audit_logs[i][2] == 'a') {
+                print_string(" - ", 0x0F);
+                print_string(audit_logs[i], 0x0F);
+                print_string("\n", 0x0F);
+                found = 1;
+            }
+        }
+    }
+    if (!found) print_string("(sin entradas)\n", 0x0E);
+}
+
+void command_apache_simulate(int requests) {
+    char buf[64];
+    for (int r = 0; r < requests; r++) {
+        copy_string(buf, "apache: GET /index.html 200\n", 64);
+        add_audit_log(buf);
+        serial_print(buf);
+    }
+}
+
+void command_apache_ls() {
+    // List files under apache www dir
+    print_string("/www:\n", 0x0B);
+    int sidx = -1;
+    for (int i = 0; i < server_count; i++) if (__builtin_strcmp(server_table[i].name, "apache") == 0) { sidx = i; break; }
+    if (sidx < 0) { print_string("apache no instalado\n", 0x0C); return; }
+    for (int f = 0; f < MAX_SERVER_FILES; f++) {
+        if (server_files[sidx][f].used && __builtin_strcmp(server_files[sidx][f].dir, "www") == 0) {
+            print_string(" - ", 0x0F);
+            print_string(server_files[sidx][f].name, 0x0F);
+            print_string("\n", 0x0F);
+        }
+    }
+}
+
+void command_apache_cat(const char *path) {
+    // path expected like /index.html or index.html
+    const char *name = path;
+    if (*name == '/') name++;
+    int sidx = -1;
+    for (int i = 0; i < server_count; i++) if (__builtin_strcmp(server_table[i].name, "apache") == 0) { sidx = i; break; }
+    if (sidx < 0) { print_string("apache no instalado\n", 0x0C); return; }
+    for (int f = 0; f < MAX_SERVER_FILES; f++) {
+        if (server_files[sidx][f].used && __builtin_strcmp(server_files[sidx][f].dir, "www") == 0 && __builtin_strcmp(server_files[sidx][f].name, name) == 0) {
+            print_string(server_files[sidx][f].content, 0x0F);
+            print_string("\n", 0x0F);
+            return;
+        }
+    }
+    print_string("Archivo no encontrado en /www\n", 0x0C);
+}
+
+void command_apache_tail(int n) {
+    if (n <= 0) n = 5;
+    print_string("APACHE - últimos logs:\n", 0x0B);
+    int found = 0;
+    int start = audit_count - n; if (start < 0) start = 0;
+    for (int i = start; i < audit_count; i++) {
+        if (audit_logs[i][0]=='a' && audit_logs[i][1]=='p' && audit_logs[i][2]=='a') {
+            print_string(" - ", 0x0F);
+            print_string(audit_logs[i], 0x0F);
+            print_string("\n", 0x0F);
+            found = 1;
+        }
+    }
+    if (!found) print_string("(sin entradas)\n", 0x0E);
+}
+
+void command_apache_add(const char *name, const char *content) {
+    if (!require_role(ROLE_OPERATOR)) return;
+    int sidx = find_server("apache");
+    if (sidx < 0) { print_string("apache no instalado\n", 0x0C); return; }
+    if (!fs_dir_exists(sidx, "www")) { print_string("/www no existe\n", 0x0C); return; }
+    for (int f = 0; f < MAX_SERVER_FILES; f++) {
+        if (!server_files[sidx][f].used) {
+            server_files[sidx][f].used = 1;
+            copy_string(server_files[sidx][f].dir, "www", 16);
+            copy_string(server_files[sidx][f].name, name, 16);
+            copy_string(server_files[sidx][f].content, content, MAX_FILE_CONTENT);
+            add_audit_log("apache: file added");
+            print_string("Archivo creado en /www\n", 0x0A);
+            return;
+        }
+    }
+    print_string("No hay espacio para mas archivos\n", 0x0C);
+}
+
+void command_apache_rm(const char *name) {
+    if (!require_role(ROLE_OPERATOR)) return;
+    int sidx = find_server("apache");
+    if (sidx < 0) { print_string("apache no instalado\n", 0x0C); return; }
+    for (int f = 0; f < MAX_SERVER_FILES; f++) {
+        if (server_files[sidx][f].used && __builtin_strcmp(server_files[sidx][f].dir, "www") == 0 && __builtin_strcmp(server_files[sidx][f].name, name) == 0) {
+            server_files[sidx][f].used = 0;
+            add_audit_log("apache: file removed");
+            print_string("Archivo eliminado\n", 0x0A);
+            return;
+        }
+    }
+    print_string("Archivo no encontrado\n", 0x0C);
+}
+
+void command_apache_vhosts() {
+    print_string("VIRTUAL HOSTS SIMULADOS:\n", 0x0B);
+    print_string(" - localhost -> /www\n", 0x0F);
+    print_string(" - example.com -> /www/example\n", 0x0F);
 }
 
 void command_login(const char *role, const char *pass) {

@@ -8,4 +8,8 @@ int read_token(const char **cursor, char *out, int max_len);
 int parse_number(const char *str);
 void int_to_str(int num, char *buffer);
 
+// Minimal libc replacements used by the kernel
+int strcmp(const char *a, const char *b);
+int strlen(const char *s);
+
 #endif

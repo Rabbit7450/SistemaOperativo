@@ -303,6 +303,56 @@ void execute_command() {
     else if (__builtin_strcmp(command, "server audit") == 0) {
         command_server_audit();
     }
+    else if (starts_with(command, "apache ")) {
+        const char *cursor = command + 7;
+        char op[16];
+        if (!read_token(&cursor, op, 16)) {
+            print_string("Uso: apache <start|stop|status|logs|simulate N>\n", 0x0C);
+        } else if (__builtin_strcmp(op, "start") == 0) {
+            command_server_start("apache");
+        } else if (__builtin_strcmp(op, "stop") == 0) {
+            command_server_stop("apache");
+        } else if (__builtin_strcmp(op, "status") == 0) {
+            command_server_status("apache");
+        } else if (__builtin_strcmp(op, "logs") == 0) {
+            command_apache_logs();
+        } else if (__builtin_strcmp(op, "ls") == 0) {
+            command_apache_ls();
+        } else if (__builtin_strcmp(op, "cat") == 0) {
+            while (*cursor == ' ') cursor++;
+            if (*cursor == '\0') print_string("Uso: apache cat <path>\n", 0x0C);
+            else command_apache_cat(skip_spaces(cursor));
+        } else if (__builtin_strcmp(op, "tail") == 0) {
+            while (*cursor == ' ') cursor++;
+            int n = 5;
+            if (*cursor != '\0') n = parse_number(cursor);
+            command_apache_tail(n);
+        } else if (__builtin_strcmp(op, "add") == 0) {
+            char name[32];
+            if (!read_token(&cursor, name, 32)) { print_string("Uso: apache add <name> <content>\n", 0x0C); }
+            else {
+                while (*cursor == ' ') cursor++;
+                const char *content = skip_spaces(cursor);
+                if (*content == '\0') print_string("Uso: apache add <name> <content>\n", 0x0C);
+                else command_apache_add(name, content);
+            }
+        } else if (__builtin_strcmp(op, "rm") == 0) {
+            char name[32];
+            if (!read_token(&cursor, name, 32)) { print_string("Uso: apache rm <name>\n", 0x0C); }
+            else command_apache_rm(name);
+        } else if (__builtin_strcmp(op, "vhosts") == 0) {
+            command_apache_vhosts();
+        } else if (__builtin_strcmp(op, "simulate") == 0) {
+            int n = 1;
+            // try parse number
+            while (*cursor == ' ') cursor++;
+            if (*cursor != '\0') n = parse_number(cursor);
+            if (n <= 0) n = 1;
+            command_apache_simulate(n);
+        } else {
+            print_string("Operacion apache no valida\n", 0x0C);
+        }
+    }
     else if (starts_with(command, "server fs ")) {
         const char *cursor = command + 10;
         char op[16], srv[16], dir[16], file[16], mode[8];

@@ -155,8 +155,8 @@ static void exception_handler_code(uint32_t vector) {
             "push $" #n "\n" \
             "call exception_handler_code\n" \
             "add $4, %%esp\n" \
-            "popa\n" \
-            "iretd\n" \
+                "popa\n" \
+                "iret\n" \
             : : : "memory"); \
     }
 
@@ -167,9 +167,9 @@ static void exception_handler_code(uint32_t vector) {
             "push $" #n "\n" \
             "call exception_handler_code\n" \
             "add $4, %%esp\n" \
-            "popa\n" \
-            "add $4, %%esp\n" \
-            "iretd\n" \
+                "popa\n" \
+                "add $4, %%esp\n" \
+                "iret\n" \
             : : : "memory"); \
     }
 
@@ -323,7 +323,7 @@ __attribute__((naked)) static void irq0_stub() {
         "call timer_irq_dispatch\n"
         "add $4, %esp\n"
         "popa\n"
-        "iretd\n"
+        "iret\n"
     );
 }
 
@@ -332,7 +332,7 @@ __attribute__((naked)) static void irq1_stub() {
         "pusha\n"
         "call keyboard_irq_handler\n"
         "popa\n"
-        "iretd\n"
+        "iret\n"
     );
 }
 
@@ -344,7 +344,7 @@ __attribute__((naked)) static void int80_stub() {
         "call syscall_from_regs\n"
         "add $4, %esp\n"
         "popa\n"
-        "iretd\n"
+        "iret\n"
     );
 }
 

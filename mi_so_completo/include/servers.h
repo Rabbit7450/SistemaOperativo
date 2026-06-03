@@ -36,5 +36,14 @@ void command_server_fs_rm(const char *srv, const char *dir, const char *file);
 void command_server_fs_rmdir(const char *srv, const char *dir);
 void command_server_fs_chmod(const char *srv, const char *dir, const char *file, const char *mode);
 void command_principales();
+// Apache simulation commands
+void command_apache_logs();
+void command_apache_simulate(int requests);
+void command_apache_ls();
+void command_apache_cat(const char *path);
+void command_apache_tail(int n);
+void command_apache_add(const char *name, const char *content);
+void command_apache_rm(const char *name);
+void command_apache_vhosts();
 
 #endif
